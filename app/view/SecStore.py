@@ -11,9 +11,6 @@ import json
 from loguru import logger
 
 from app.view.recommend import recommend_dialog
-# from app.view.screen_annotation import screen_annotation_dialog
-# from app.view.calendar import calendar_dialog
-# from app.view.auxiliary_interface import auxiliary_interface_dialog
 # from app.view.settings import settings_Window
 # from app.view.about import about_Window
 
@@ -49,22 +46,6 @@ class Window(FluentWindow):
         self.recommendInterface.setObjectName("recommendInterface")
         logger.debug("推荐界面房间已建成 ")
 
-        # # 创建屏幕批注与白板软件界面
-        # self.screen_annotationInterface = screen_annotation_dialog(self)
-        # self.screen_annotationInterface.setObjectName("screen_annotationInterface")
-        # logger.debug("屏幕批注与白板软件界面房间已建成 ")
-
-        # # 创建课表与看板类软件界面
-        # self.calendarInterface = calendar_dialog(self)
-        # self.calendarInterface.setObjectName("calendarInterface")
-        # logger.debug("课表与看板类软件界面房间已建成 ")
-
-        # # 创建辅助类软件与实用工具界面
-        # self.auxiliary_interface = auxiliary_interface_dialog(self)
-        # self.auxiliary_interface.setObjectName("auxiliary_interface")
-        # logger.debug("辅助类软件与实用工具界面房间已建成 ")
-
-
         # # 创建设置界面
         # self.settingInterface = settings_Window(self)
         # self.settingInterface.setObjectName("settingInterface")
@@ -80,10 +61,7 @@ class Window(FluentWindow):
         logger.info("所有子界面和导航系统已完工！")
 
     def initNavigation(self):
-        self.addSubInterface(self.recommendInterface, FluentIcon.HOME, '推荐', position=NavigationItemPosition.TOP)
-        # self.addSubInterface(self.screen_annotationInterface, FluentIcon.PENCIL_INK, '屏幕批注与白板软件', position=NavigationItemPosition.TOP)
-        # self.addSubInterface(self.calendarInterface, FluentIcon.CALENDAR, '课表与看板类软件', position=NavigationItemPosition.TOP)
-        # self.addSubInterface(self.auxiliary_interface, FluentIcon.DEVELOPER_TOOLS, '辅助类软件与实用工具', position=NavigationItemPosition.TOP)
+        self.addSubInterface(self.recommendInterface, FluentIcon.HOME, '首页', position=NavigationItemPosition.TOP)
 
         # self.addSubInterface(self.settingInterface, FluentIcon.SETTING, '设置', position=NavigationItemPosition.BOTTOM)
         # self.addSubInterface(self.about_settingInterface, FluentIcon.INFO, '关于', position=NavigationItemPosition.BOTTOM)
