@@ -1,0 +1,32 @@
+# UTF-8
+#
+# Version info for SecStore.exe
+
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 0, 0, 0),
+    prodvers=(0, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'080404B0',
+          [StringStruct(u'CompanyName', u'SecStore'),
+          StringStruct(u'FileDescription', u'SecStore'),
+          StringStruct(u'FileVersion', u'0.0.0.0'),
+          StringStruct(u'InternalName', u'SecStore'),
+          StringStruct(u'LegalCopyright', u'版权所有 © 2025 SecStore'),
+          StringStruct(u'OriginalFilename', u'SecStore.exe'),
+          StringStruct(u'ProductName', u'SecStore'),
+          StringStruct(u'ProductVersion', u'0.0.0.0')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
+  ]
+)

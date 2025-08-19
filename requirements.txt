@@ -1,0 +1,30 @@
+colorama==0.4.6
+comtypes==1.4.10
+darkdetect==0.8.0
+asyncio~=3.4.3
+loguru==0.7.3
+pyttsx3==2.98
+PyQt-Fluent-Widgets~=1.7.7
+PyQt5~=5.15.9
+PyQt5-Frameless-Window==0.6.0
+PyQt5-Qt5~=5.15.2
+PyQt5_sip==12.15.0
+pyotp==2.9.0
+sip~=6.8.6
+pywin32==310; platform_system == "Windows"
+win32_setctime==1.2.0
+winshell==0.6; platform_system == "Windows"
+pyqrcode~=1.2.1
+pypng~=0.20220715.0
+pillow~=10.4.0
+psutil~=7.0.0
+numpy~=1.24.4
+pandas~=2.0.3
+pycaw==20240210
+edge-tts==7.0.2
+sounddevice==0.5.2
+soundfile==0.13.1
+openpyxl==3.1.5
+requests==2.32.4
+packaging==25.0
+jinja2~=3.1.6
