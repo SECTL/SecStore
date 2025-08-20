@@ -10,6 +10,7 @@ import sys
 import json
 import sip
 import functools
+import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -68,6 +69,7 @@ class recommend_dialog(QWidget):
         self.main_scroll_area = SingleDirectionScrollArea(orient=Qt.Vertical)
         self.main_scroll_area.setObjectName("main_scroll_area")
         self.main_scroll_area.setWidgetResizable(True)
+        QScroller.grabGesture(self.main_scroll_area.viewport(), QScroller.LeftMouseButtonGesture)
         
         # 创建主内容容器
         self.main_content_widget = QWidget()
@@ -89,7 +91,7 @@ class recommend_dialog(QWidget):
         self.main_layout.addWidget(self.main_scroll_area)
         
         # 创建搜索框
-        self.create_search_box()
+        # self.create_search_box()
 
         # 创建顶部FlipView轮播图
         self.create_flip_view()
@@ -103,15 +105,25 @@ class recommend_dialog(QWidget):
         container = QWidget()
         container.setObjectName("carousel_container")
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(20, 20, 20, 20)  # 上20，左20，下20，右20
+        container_layout.setContentsMargins(0, 20, 0, 20)  # 上20，左20，下20，右20
         # 设置容器布局垂直居上对齐
         container_layout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
 
         flipView = HorizontalFlipView()
         flipView.setObjectName("carousel_flipview")
-        flipView.addImages(["app/resource/assets/carousel/ClassIsland.png", "app/resource/assets/carousel/Class_Widgets.png"])
+        flipView.addImages(["app/resource/assets/carousel/ClassIsland.png", "app/resource/assets/carousel/Class_Widgets.png",
+                                "app/resource/assets/carousel/ICC-CE.png", "app/resource/assets/carousel/Ink-Canvas.png",
+                                "app/resource/assets/carousel/Inkeys.png", "app/resource/assets/carousel/LemonxNote.png",
+                                "app/resource/assets/carousel/NamePicker.png", "app/resource/assets/carousel/ppInk.png",
+                                "app/resource/assets/carousel/SketchNow.png"])
         flipView.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
-        flipView.setFixedSize(QSize(800, 400))
+        # 根据当前窗口宽度动态设置轮播图大小
+        window_width = self.width()
+        # 设置轮播图宽度为窗口宽度的90%，最小800，最大1200
+        flip_width = max(800, min(1800, int(window_width * 0.9)))
+        # 高度按比例设置，保持16:9的宽高比，最大600像素
+        flip_height = min(350, int(flip_width * 9 / 16))
+        flipView.setFixedSize(QSize(flip_width, flip_height))
         # 设置轮播图项之间的间距
         flipView.setSpacing(20)
 
@@ -121,6 +133,8 @@ class recommend_dialog(QWidget):
         
         # 保存轮播图容器引用
         self.carousel_container = container
+        # 保存flipView引用以便后续调整大小
+        self.flip_view = flipView
         
     def create_search_box(self):
         """创建搜索框"""
@@ -160,23 +174,14 @@ class recommend_dialog(QWidget):
         self.main_content_layout.addWidget(search_container)
         
     def create_recommend_cards(self):
-        """创建推荐软件卡片"""
-        # 创建推荐软件容器
+        """创建软件卡片"""
+        # 创建软件容器
         self.recommend_container = QWidget()
         self.recommend_container.setObjectName("recommend_container")
         recommend_layout = QVBoxLayout(self.recommend_container)
         recommend_layout.setContentsMargins(20, 20, 20, 20)
         recommend_layout.setSpacing(20)
         recommend_layout.setAlignment(Qt.AlignLeft)
-        
-        # 添加"推荐软件"标题
-        title_label = TitleLabel("推荐软件")
-        title_label.setObjectName("recommend_title")
-        title_label.setAlignment(Qt.AlignLeft)
-        recommend_layout.addWidget(title_label)
-        
-        # 保存推荐标题引用
-        self.recommend_title = title_label
         
         # 创建三个固定分类标签区域
         categories = [
@@ -200,6 +205,7 @@ class recommend_dialog(QWidget):
             
             # 创建分类标题
             category_title = TitleLabel(category)
+            category_title.setFont(QFont(load_custom_font(), 16))
             category_title.setObjectName(f"category_title_{category}")
             category_title.setAlignment(Qt.AlignLeft)
             category_layout.addWidget(category_title)
@@ -207,7 +213,6 @@ class recommend_dialog(QWidget):
             # 创建该分类的卡片容器
             cards_widget = QWidget()
             cards_widget.setObjectName(f"cards_widget_{category}")
-            # 不在这里创建布局，在layout_cards方法中统一创建
             
             category_layout.addWidget(cards_widget)
             recommend_layout.addWidget(category_widget)
@@ -231,7 +236,6 @@ class recommend_dialog(QWidget):
         
         # 添加到主布局
         self.main_content_layout.addWidget(self.recommend_container)
-        # 注意：初始布局将在数据加载完成后自动调用，避免重复布局
 
     def layout_cards(self, force_refresh=False):
         """动态布局卡片，根据窗口宽度自动调整每行显示的卡片数量"""
@@ -243,8 +247,9 @@ class recommend_dialog(QWidget):
         self._last_layout_time = current_time
         
         # 计算每行应该显示的卡片数量
-        container_width = self.width() - 40  # 减去左右边距
-        card_width = 350
+        window_width = self.width()
+        container_width = max(500, window_width - 40)  # 确保最小宽度500，增加边距减去值
+        card_width = 400
         card_spacing = 15
         
         # 计算每行最多能显示的卡片数量
@@ -260,57 +265,33 @@ class recommend_dialog(QWidget):
         self.setUpdatesEnabled(False)
         
         try:
-            # 为每个分类单独布局卡片
+            # 为每个分类单独布局卡片 - 优化版本，避免卡片消失
             for category, cards in self.category_cards.items():
                 if category not in self.category_cards_widgets:
                     continue
                     
                 cards_widget = self.category_cards_widgets[category]
                 
-                # 完全重建widget以避免布局冲突
-                # 保存当前widget的父布局和位置信息
-                parent_layout = cards_widget.parent().layout() if cards_widget.parent() else None
-                layout_index = -1
-                if parent_layout:
-                    for i in range(parent_layout.count()):
-                        if parent_layout.itemAt(i).widget() == cards_widget:
-                            layout_index = i
-                            break
-                
-                # 从父布局中移除当前widget
-                if parent_layout and layout_index >= 0:
-                    parent_layout.takeAt(layout_index)
-                
-                # 创建新的widget来替换旧的
-                new_cards_widget = QWidget()
-                new_cards_widget.setObjectName(f"cards_widget_{category}")
-                new_cards_widget.setSizePolicy(cards_widget.sizePolicy())
-                
-                # 将新widget添加到父布局中的原位置
-                if parent_layout and layout_index >= 0:
-                    parent_layout.insertWidget(layout_index, new_cards_widget)
-                
-                # 更新引用
-                self.category_cards_widgets[category] = new_cards_widget
-                cards_widget = new_cards_widget
-                
-                # 彻底删除旧的widget及其所有子部件
-                old_widget = cards_widget
-                if old_widget != new_cards_widget:
-                    old_widget.setParent(None)
-                    old_widget.deleteLater()
-                
-                # 等待Qt完全处理widget删除
-                QApplication.processEvents()
-                import time
-                time.sleep(0.05)  # 50ms同步等待
-                QApplication.processEvents()
-                
-                # 创建新的布局
-                category_layout = QVBoxLayout(cards_widget)
-                category_layout.setContentsMargins(0, 0, 0, 0)
-                category_layout.setSpacing(20)
-                category_layout.setAlignment(Qt.AlignHCenter)
+                # 清空现有布局，但保留卡片对象
+                layout = cards_widget.layout()
+                if layout:
+                    # 移除所有子widget，但保留卡片
+                    while layout.count():
+                        item = layout.takeAt(0)
+                        if item.widget() and item.widget() != cards_widget:
+                            # 检查是否是卡片对象，如果是则保留但不删除
+                            if item.widget() in cards:
+                                # 只从布局中移除，不删除widget
+                                item.widget().setParent(None)
+                            else:
+                                # 非卡片对象可以安全删除
+                                item.widget().deleteLater()
+                else:
+                    # 创建新布局
+                    layout = QVBoxLayout(cards_widget)
+                    layout.setContentsMargins(0, 0, 0, 0)
+                    layout.setSpacing(20)
+                    layout.setAlignment(Qt.AlignHCenter)
                 
                 # 检查是否处于搜索状态
                 is_searching = hasattr(self, 'current_search_text') and self.current_search_text
@@ -332,21 +313,21 @@ class recommend_dialog(QWidget):
                         # 搜索状态下，只在第一个分类显示统一的空状态提示
                         categories = list(self.category_cards_widgets.keys())
                         if category == categories[0]:
+                            # 创建居中的空状态容器
+                            empty_container = QWidget()
+                            empty_container.setObjectName("empty_container_search")
+                            empty_layout = QVBoxLayout(empty_container)
+                            empty_layout.setAlignment(Qt.AlignCenter)
+                            empty_layout.setContentsMargins(0, 50, 0, 50)  # 添加上下边距
+                            
                             empty_label = BodyLabel(f"未找到包含 '{self.current_search_text}' 的应用")
                             empty_label.setObjectName("empty_label_search")
                             empty_label.setAlignment(Qt.AlignCenter)
                             empty_label.setFont(QFont(load_custom_font(), 12))
                             empty_label.setStyleSheet("color: #666;")
-                            category_layout.addWidget(empty_label)
-                        # 其他没有匹配的分类已经在上面的逻辑中隐藏了
-                    else:
-                        # 非搜索状态，每个分类显示各自的空状态
-                        empty_label = BodyLabel("暂无应用")
-                        empty_label.setObjectName(f"empty_label_{category}")
-                        empty_label.setAlignment(Qt.AlignCenter)
-                        empty_label.setFont(QFont(load_custom_font(), 10))
-                        category_layout.addWidget(empty_label)
-                    continue
+                            
+                            empty_layout.addWidget(empty_label)
+                            layout.addWidget(empty_container)
                 
                 # 创建当前行容器
                 current_row = QWidget()
@@ -358,13 +339,23 @@ class recommend_dialog(QWidget):
                 
                 # 动态布局该分类的卡片
                 for i, card in enumerate(cards):
+                    # 检查卡片对象是否有效
+                    try:
+                        # 尝试访问卡片的某个属性来验证对象是否仍然有效
+                        if not card or not hasattr(card, 'isVisible'):
+                            logger.warning(f"卡片对象已无效，跳过: {card}")
+                            continue
+                    except:
+                        logger.warning(f"卡片对象访问失败，跳过: {card}")
+                        continue
+                    
                     # 如果当前行已满，创建新行
                     if i > 0 and i % max_cards_per_row == 0:
                         # 添加两侧拉伸因子，使卡片居中对齐
                         row_layout.addStretch(1)
                         row_layout.insertStretch(0, 1)
                         # 将当前行添加到内容容器
-                        category_layout.addWidget(current_row)
+                        layout.addWidget(current_row)
                         
                         # 创建新的一行
                         current_row = QWidget()
@@ -375,12 +366,16 @@ class recommend_dialog(QWidget):
                         row_layout.setAlignment(Qt.AlignHCenter)
                     
                     # 将卡片添加到当前行
-                    row_layout.addWidget(card)
+                    try:
+                        row_layout.addWidget(card)
+                    except RuntimeError as e:
+                        logger.error(f"添加卡片到布局失败: {e}")
+                        continue
                 
                 # 添加最后一行的拉伸因子和布局，使卡片居中对齐
                 row_layout.addStretch(1)
                 row_layout.insertStretch(0, 1)
-                category_layout.addWidget(current_row)
+                layout.addWidget(current_row)
         
         finally:
             # 恢复窗口更新
@@ -474,11 +469,46 @@ class recommend_dialog(QWidget):
             # 清空搜索框文本
             if hasattr(self, 'search_box'):
                 self.search_box.setText("")
-            # 当搜索框被清空时，强制刷新显示所有应用
-            self.show_all_apps()
+            
+            # 使用异步方式确保标题和卡片正确显示
+            QTimer.singleShot(100, lambda: self._refresh_after_clear())
+            
         finally:
             # 确保在任何情况下都重置标志
             self._is_clearing = False
+    
+    def _refresh_after_clear(self):
+        """清除搜索后的刷新操作"""
+        try:
+            logger.debug("执行清除搜索后的异步刷新")
+            
+            # 显示所有应用
+            self.show_all_apps()
+            
+            # 确保标题显示
+            self._ensure_titles_visible()
+            
+            # 强制重新布局
+            QTimer.singleShot(50, lambda: self.layout_cards(force_refresh=True))
+            
+        except Exception as e:
+            logger.error(f"清除搜索后刷新失败: {str(e)}")
+            # 发生错误时重试
+            QTimer.singleShot(100, lambda: self.show_all_apps())
+    
+    def _ensure_titles_visible(self):
+        """确保标题和软件卡片在清除搜索后可见"""
+        try:
+            # 确保所有分类区域可见
+            for category in self.category_cards:
+                if category in self.category_widgets:
+                    self.category_widgets[category].show()
+                    
+            # 确保轮播图和推荐区域可见
+            self.show_search_ui_elements()
+                    
+        except Exception as e:
+            logger.debug(f"确保标题可见时出错: {str(e)}")
         
     def hide_search_ui_elements(self):
         """隐藏轮播图和分类标题，只显示搜索结果"""
@@ -494,9 +524,9 @@ class recommend_dialog(QWidget):
                     if isinstance(child, TitleLabel) and child.objectName().startswith('category_title_'):
                         child.hide()
         
-        # 隐藏推荐软件标题
-        if hasattr(self, 'recommend_title'):
-            self.recommend_title.hide()
+        # 隐藏推荐应用容器
+        if hasattr(self, 'recommend_container'):
+            self.recommend_container.hide()
             
     def show_search_ui_elements(self):
         """重新显示轮播图和分类标题"""
@@ -512,12 +542,22 @@ class recommend_dialog(QWidget):
                     if isinstance(child, TitleLabel) and child.objectName().startswith('category_title_'):
                         child.show()
         
-        # 显示推荐软件标题
+        # 显示推荐软件标题和说明
         if hasattr(self, 'recommend_title'):
             self.recommend_title.show()
+        if hasattr(self, 'recommend_desc'):
+            self.recommend_desc.show()
+        
+        # 显示推荐应用容器
+        if hasattr(self, 'recommended_apps_container'):
+            self.recommended_apps_container.show()
+        
+        # 显示新收录应用容器
+        if hasattr(self, 'new_apps_container'):
+            self.new_apps_container.show()
         
     def perform_search(self, search_text):
-        """执行搜索操作"""
+        """执行搜索操作（优化版）"""
         self.current_search_text = search_text.strip()
         
         if not self.current_search_text:
@@ -545,11 +585,31 @@ class recommend_dialog(QWidget):
             if name_match or desc_match or category_match:
                 self.filtered_apps.append(app_data)
         
+        logger.debug(f"搜索完成，找到 {len(self.filtered_apps)} 个匹配应用")
+        
         # 隐藏轮播图和分类标题，只显示搜索结果
         self.hide_search_ui_elements()
         
-        # 更新显示，强制刷新以确保搜索结果正确显示
-        self.update_filtered_display(force_refresh=True)
+        # 使用异步方式确保搜索结果正确显示
+        QTimer.singleShot(50, lambda: self._show_search_results())
+    
+    def _show_search_results(self):
+        """显示搜索结果"""
+        try:
+            # 确保搜索UI元素已隐藏
+            self.hide_search_ui_elements()
+            
+            # 更新显示
+            self.update_filtered_display(force_refresh=True)
+            
+            # 确保搜索结果显示区域可见
+            if hasattr(self, 'search_results_container'):
+                self.search_results_container.show()
+                
+        except Exception as e:
+            logger.error(f"显示搜索结果失败: {str(e)}")
+            # 发生错误时重试
+            QTimer.singleShot(100, lambda: self.update_filtered_display(force_refresh=True))
         
     def show_all_apps(self):
         """显示所有应用"""
@@ -569,63 +629,125 @@ class recommend_dialog(QWidget):
             "辅助类软件与实用工具": []
         }
         
-        # 重新分配应用到各个分类
-        for app_data in self.all_apps:
-            category = app_data.get('category', '辅助类软件与实用工具')
-            if category in self.category_cards:
-                self.category_cards[category].append(app_data)
+        # 确保搜索框文本同步清空
+        if hasattr(self, 'search_box') and self.search_box:
+            self.search_box.setText("")
         
-        # 强制刷新显示所有应用，确保完全重绘
-        self.update_filtered_display(force_refresh=True)
-        logger.debug("完成所有应用的显示刷新")
+        # 重新分配应用到各个分类，并为普通应用创建卡片
+        for app_data in self.all_apps:
+            category = self._get_category_by_app_type(app_data.get('category', '未分类'))
+            if category in self.category_cards:
+                try:
+                    card = self.create_app_card(
+                        app_data['name'],
+                        app_data['category'],
+                        app_data['description'],
+                        app_data.get('icon'),
+                        app_data.get('stars', 0),
+                        app_data.get('downloads', 0),
+                        app_data.get('banner', ''),
+                        app_data.get('repo_name'),
+                        app_data
+                    )
+                    if card:
+                        self.category_cards[category].append(card)
+                except Exception as e:
+                    logger.error(f"创建普通应用卡片失败: {str(e)}")
+        
+        # 重新设置filtered_apps为所有应用
+        self.filtered_apps = self.all_apps.copy()
+        
+        logger.debug(f"已创建 {len(self.all_apps)} 个应用卡片")
+        
+        # 直接刷新布局，确保卡片可见
+        self.layout_cards(force_refresh=True)
         
     def update_filtered_display(self, force_refresh=False):
-        """更新过滤后的显示"""
-        # 清空现有卡片
-        for card in self.app_cards:
-            card.deleteLater()
-        self.app_cards.clear()
-        
-        # 清空分类卡片
-        for category in self.category_cards:
-            self.category_cards[category].clear()
-        
-        # 检查是否在搜索状态
-        is_searching = hasattr(self, 'search_box') and self.search_box.text().strip()
-        
-        # 如果没有过滤结果，显示提示
-        if not self.filtered_apps:
-            # 只在搜索状态下显示无结果提示
-            if is_searching:
-                self.show_no_results_message()
-            else:
-                # 非搜索状态，正常显示空分类
-                self.layout_cards(force_refresh=force_refresh)
-            return
-        
-        # 重新创建过滤后的卡片
-        for app_data in self.filtered_apps:
-            card = self.create_app_card(
-                app_data['name'],
-                app_data['category'],
-                app_data['description'],
-                app_data['icon'],
-                app_data['stars'],
-                app_data['downloads'],
-                app_data.get('banner', ''),
-                app_data.get('repo_name')
-            )
+        """更新过滤后的显示（异步优化版）"""
+        # 使用异步方式清空现有卡片，避免UI卡顿
+        QTimer.singleShot(0, lambda: self._async_update_display(force_refresh))
+    
+    def _async_update_display(self, force_refresh=False):
+        """异步更新显示内容"""
+        try:
+            # 清空现有卡片
+            for card in self.app_cards:
+                try:
+                    if not sip.isdeleted(card):
+                        card.deleteLater()
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        logger.debug("应用卡片已被删除，跳过清理")
+                    else:
+                        logger.error(f"清理应用卡片时出错: {e}")
+            self.app_cards.clear()
             
-            if card:
-                # 根据软件类型确定分类
-                category = self._get_category_by_app_type(app_data['category'])
+            # 清空分类卡片
+            for category in self.category_cards:
+                # 清空分类卡片列表，但不删除卡片对象（它们可能在其他地方被引用）
+                self.category_cards[category].clear()
+            
+            # 检查是否在搜索状态
+            is_searching = hasattr(self, 'search_box') and self.search_box.text().strip()
+            
+            # 如果没有过滤结果，显示提示
+            if not self.filtered_apps:
+                # 只在搜索状态下显示无结果提示
+                if is_searching:
+                    self.show_no_results_message()
+                else:
+                    # 非搜索状态，正常显示所有应用
+                    self.show_all_apps()
+                return
+            
+            # 分批创建卡片，避免UI卡顿
+            self._create_cards_async(0, force_refresh)
+            
+        except Exception as e:
+            logger.error(f"异步更新显示失败: {str(e)}")
+            # 发生错误时直接布局
+            self.layout_cards(force_refresh=force_refresh)
+    
+    def _create_cards_async(self, start_index, force_refresh=False):
+        """异步分批创建卡片"""
+        try:
+            batch_size = 10  # 每批创建10个卡片
+            end_index = min(start_index + batch_size, len(self.filtered_apps))
+            
+            # 创建当前批次的卡片
+            for i in range(start_index, end_index):
+                app_data = self.filtered_apps[i]
+                card = self.create_app_card(
+                    app_data['name'],
+                    app_data['category'],
+                    app_data['description'],
+                    app_data['icon'],
+                    app_data['stars'],
+                    app_data['downloads'],
+                    app_data.get('banner', ''),
+                    app_data.get('repo_name'),
+                    app_data  # 传递完整的app_data
+                )
                 
-                # 将卡片添加到对应的分类中
-                self.app_cards.append(card)
-                self.category_cards[category].append(card)
-        
-        # 重新布局卡片，强制刷新以确保正确显示
-        self.layout_cards(force_refresh=force_refresh)
+                if card:
+                    # 根据软件类型确定分类
+                    category = self._get_category_by_app_type(app_data['category'])
+                    
+                    # 将卡片添加到对应的分类中
+                    self.app_cards.append(card)
+                    self.category_cards[category].append(card)
+            
+            # 如果还有未创建的卡片，继续异步创建
+            if end_index < len(self.filtered_apps):
+                QTimer.singleShot(10, lambda: self._create_cards_async(end_index, force_refresh))
+            else:
+                # 所有卡片创建完成，进行布局
+                QTimer.singleShot(50, lambda: self.layout_cards(force_refresh=force_refresh))
+                
+        except Exception as e:
+            logger.error(f"异步创建卡片失败: {str(e)}")
+            # 发生错误时直接布局
+            self.layout_cards(force_refresh=force_refresh)
         
     def show_no_results_message(self):
         """显示无搜索结果消息"""
@@ -640,19 +762,43 @@ class recommend_dialog(QWidget):
         super().resizeEvent(event)
         # 检查窗口宽度是否真的发生了变化，避免不必要的重布局
         if hasattr(self, '_last_width'):
-            if abs(self.width() - self._last_width) < 50:  # 宽度变化小于50像素时不重布局
+            if abs(self.width() - self._last_width) < 10:  # 减小阈值，更敏感地响应大小变化
                 return
         self._last_width = self.width()
         
         # 更新滚动区域大小
         if hasattr(self, 'scroll_area'):
             # 根据窗口高度动态调整滚动区域高度
-            available_height = self.height() - 350  # 减去轮播图和其他元素的高度
+            available_height = self.height() - 400  # 减去轮播图和其他元素的高度
             if available_height > 300:
                 self.scroll_area.setMinimumHeight(min(available_height, 600))
+
+        # 如果flipView存在，则根据新的窗口宽度调整大小
+        if hasattr(self, 'flip_view') and self.flip_view:
+            window_width = self.width()
+            # 设置轮播图宽度为窗口宽度的90%，最小800，最大1200
+            flip_width = max(800, min(1800, int(window_width * 0.9)))
+            # 高度按比例设置，保持16:9的宽高比，最大600像素
+            flip_height = min(350, int(flip_width * 9 / 16))
+            self.flip_view.setFixedSize(QSize(flip_width, flip_height))
+            
+            # logger.debug(f"窗口大小变化，调整轮播图大小为: {flip_width}x{flip_height}")
         
-        # 延迟重新布局，避免频繁调用，使用强制刷新确保正确显示
-        QTimer.singleShot(200, lambda: self.layout_cards(force_refresh=True))
+        # 立即重新布局，避免延迟导致的重叠
+        QTimer.singleShot(50, lambda: self.layout_cards(force_refresh=True))
+        
+    def showEvent(self, event):
+        """窗口显示时确保布局正确"""
+        super().showEvent(event)
+        # 延迟刷新确保窗口完全显示且布局稳定
+        QTimer.singleShot(300, lambda: self.layout_cards(force_refresh=True))
+        
+    def changeEvent(self, event):
+        """窗口状态变化时重新布局"""
+        super().changeEvent(event)
+        if event.type() == event.WindowStateChange:
+            # 窗口最大化/最小化/恢复正常时重新布局
+            QTimer.singleShot(150, lambda: self.layout_cards(force_refresh=True))
         
     def validate_and_fix_repo_name(self, repo_name, url=None):
         """验证并修正仓库名格式，从url中获取正确的组织信息"""
@@ -776,31 +922,40 @@ class recommend_dialog(QWidget):
             logger.warning(f"仓库名格式不正确且无法修正: {repo_name}，跳过获取stars")
             return 0
             
-        try:
-            # 构建GitHub API URL
-            api_url = f"https://api.github.com/repos/{validated_repo_name}"
-            headers = {
-                "User-Agent": "SecStore/1.0",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            
-            # 使用requests发送请求，优化超时设置
-            response = requests.get(api_url, headers=headers, timeout=(5, 10), verify=False)  # 连接超时5秒，读取超时10秒
-            response.raise_for_status()
-            
-            repo_info = response.json()
-            stars = repo_info.get('stargazers_count', 0)
-            logger.info(f"成功获取仓库 {validated_repo_name} 的stars数量: {stars}")
-            return stars
-        except requests.exceptions.Timeout:
-            logger.warning(f"获取GitHub仓库stars超时 {validated_repo_name}")
-            return 0
-        except requests.exceptions.RequestException as e:
-            logger.error(f"获取GitHub仓库stars失败 {validated_repo_name}: {str(e)}")
-            return 0
-        except Exception as e:
-            logger.error(f"获取GitHub仓库stars异常 {validated_repo_name}: {str(e)}")
-            return 0
+        # 设置重试机制
+        max_retries = 2
+        for retry in range(max_retries):
+            try:
+                # 构建GitHub API URL
+                api_url = f"https://api.github.com/repos/{validated_repo_name}"
+                headers = {
+                    "User-Agent": "SecStore/1.0",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                
+                # 使用requests发送请求，进一步优化超时设置
+                response = requests.get(api_url, headers=headers, timeout=(3, 7), verify=False)  # 连接超时3秒，读取超时7秒
+                response.raise_for_status()
+                
+                repo_info = response.json()
+                stars = repo_info.get('stargazers_count', 0)
+                logger.info(f"成功获取仓库 {validated_repo_name} 的stars数量: {stars}")
+                return stars
+            except requests.exceptions.Timeout:
+                logger.warning(f"获取GitHub仓库stars超时 {validated_repo_name} (重试 {retry + 1}/{max_retries})")
+                if retry < max_retries - 1:
+                    time.sleep(1)  # 重试前等待1秒
+                continue
+            except requests.exceptions.RequestException as e:
+                logger.error(f"获取GitHub仓库stars失败 {validated_repo_name}: {str(e)}")
+                break
+            except Exception as e:
+                logger.error(f"获取GitHub仓库stars异常 {validated_repo_name}: {str(e)}")
+                break
+        
+        # 所有重试都失败后返回0
+        logger.warning(f"获取GitHub仓库stars最终失败 {validated_repo_name}")
+        return 0
     
     def _fetch_github_downloads_threaded(self, repo_name, url=None):
         """多线程版本：从GitHub API获取仓库的下载总量"""
@@ -810,37 +965,46 @@ class recommend_dialog(QWidget):
             logger.warning(f"仓库名格式不正确且无法修正: {repo_name}，跳过获取下载量")
             return 0
             
-        try:
-            # 构建GitHub releases API URL
-            api_url = f"https://api.github.com/repos/{validated_repo_name}/releases"
-            headers = {
-                "User-Agent": "SecStore/1.0",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            
-            # 使用requests发送请求，优化超时设置
-            response = requests.get(api_url, headers=headers, timeout=(5, 15), verify=False)  # 连接超时5秒，读取超时15秒
-            response.raise_for_status()
-            
-            releases = response.json()
-            total_downloads = 0
-            for release in releases:
-                # 累计所有assets的下载量
-                for asset in release.get('assets', []):
-                    download_count = asset.get('download_count', 0)
-                    total_downloads += download_count
-            
-            logger.info(f"成功获取仓库 {validated_repo_name} 的下载总量: {total_downloads}")
-            return total_downloads
-        except requests.exceptions.Timeout:
-            logger.warning(f"获取GitHub仓库下载量超时 {validated_repo_name}")
-            return 0
-        except requests.exceptions.RequestException as e:
-            logger.error(f"获取GitHub仓库下载量失败 {validated_repo_name}: {str(e)}")
-            return 0
-        except Exception as e:
-            logger.error(f"获取GitHub仓库下载量异常 {validated_repo_name}: {str(e)}")
-            return 0
+        # 设置重试机制
+        max_retries = 2
+        for retry in range(max_retries):
+            try:
+                # 构建GitHub releases API URL
+                api_url = f"https://api.github.com/repos/{validated_repo_name}/releases"
+                headers = {
+                    "User-Agent": "SecStore/1.0",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                
+                # 使用requests发送请求，进一步优化超时设置
+                response = requests.get(api_url, headers=headers, timeout=(3, 10), verify=False)  # 连接超时3秒，读取超时10秒
+                response.raise_for_status()
+                
+                releases = response.json()
+                total_downloads = 0
+                for release in releases:
+                    # 累计所有assets的下载量
+                    for asset in release.get('assets', []):
+                        download_count = asset.get('download_count', 0)
+                        total_downloads += download_count
+                
+                logger.info(f"成功获取仓库 {validated_repo_name} 的下载总量: {total_downloads}")
+                return total_downloads
+            except requests.exceptions.Timeout:
+                logger.warning(f"获取GitHub仓库下载量超时 {validated_repo_name} (重试 {retry + 1}/{max_retries})")
+                if retry < max_retries - 1:
+                    time.sleep(1)  # 重试前等待1秒
+                continue
+            except requests.exceptions.RequestException as e:
+                logger.error(f"获取GitHub仓库下载量失败 {validated_repo_name}: {str(e)}")
+                break
+            except Exception as e:
+                logger.error(f"获取GitHub仓库下载量异常 {validated_repo_name}: {str(e)}")
+                break
+        
+        # 所有重试都失败后返回0
+        logger.warning(f"获取GitHub仓库下载量最终失败 {validated_repo_name}")
+        return 0
     
     def fetch_software_list(self):
         """从远程获取软件列表"""
@@ -850,6 +1014,7 @@ class recommend_dialog(QWidget):
             return
             
         self._is_fetching = True
+        logger.info("开始获取软件列表...")
         url = "https://raw.githubusercontent.com/SECTL/SecStore-apply/master/apply/software_list.json"
         request = QNetworkRequest(QUrl(url))
         # 设置User-Agent以避免被某些网站拒绝
@@ -863,10 +1028,11 @@ class recommend_dialog(QWidget):
         try:
             # 重置请求标志
             self._is_fetching = False
+            logger.info("软件列表请求完成，开始处理数据...")
             
             if reply.error() == QNetworkReply.NoError:
                 raw_data = reply.readAll().data()
-                # logger.info(f"接收到的原始数据长度: {len(raw_data)}")
+                logger.info(f"接收到的原始数据长度: {len(raw_data)}")
                 
                 # 检查数据是否为空
                 if not raw_data or len(raw_data) == 0:
@@ -901,7 +1067,14 @@ class recommend_dialog(QWidget):
                 
                 # 清空现有卡片
                 for card in self.app_cards:
-                    card.deleteLater()
+                    try:
+                        if not sip.isdeleted(card):
+                            card.deleteLater()
+                    except RuntimeError as e:
+                        if "wrapped C/C++ object" in str(e):
+                            logger.debug("应用卡片已被删除，跳过清理")
+                        else:
+                            logger.error(f"清理应用卡片时出错: {e}")
                 self.app_cards.clear()
                 
                 # 重置计数器
@@ -915,8 +1088,8 @@ class recommend_dialog(QWidget):
                     if repo_name.startswith("//") or not isinstance(software_info, dict):
                         continue
                     
-                    # 先添加基本信息，stars和下载量将在多线程中获取
-                    software_list.append({
+                    # 添加所有软件信息字段，包括新的JSON字段
+                    software_item = {
                         'name': software_info.get("name", repo_name),
                         'category': software_info.get("category", "未分类"),
                         'description': software_info.get("description", "暂无简介"),
@@ -925,14 +1098,25 @@ class recommend_dialog(QWidget):
                         'downloads': 0,  # 默认值，将在多线程中更新
                         'banner': software_info.get("banner", ""),
                         'repo_name': repo_name,  # 保存仓库名用于后续获取数据
-                        'url': software_info.get('url')  # 保存URL用于仓库名验证
-                    })
+                        'url': software_info.get('url'),  # 保存URL用于仓库名验证
+                        'author': software_info.get('author'),
+                        'version_format': software_info.get('version_format'),
+                        'platform': software_info.get('platform'),
+                        'license': software_info.get('license'),
+                        'license_url': software_info.get('license_url'),
+                        'official_website': software_info.get('official_website'),
+                        'qq': software_info.get('qq'),
+                        'qq_name': software_info.get('qq_name'),
+                        'note': software_info.get('note'),
+                        'recommend': software_info.get('recommend', '') 
+                    }
+                    software_list.append(software_item)
                 
                 self._total_cards_count = len(software_list)
                 logger.info(f"准备并发加载 {self._total_cards_count} 个应用卡片")
                 
                 # 使用线程池并发获取GitHub数据和创建卡片，优化并发避免卡死
-                with ThreadPoolExecutor(max_workers=4) as executor:  # 减少线程数避免资源耗尽
+                with ThreadPoolExecutor(max_workers=2) as executor:  # 进一步减少线程数避免资源耗尽
                     # 首先为每个软件提交获取stars和下载量的任务
                     software_futures = {}  # 保存每个软件相关的future
                     
@@ -952,13 +1136,13 @@ class recommend_dialog(QWidget):
                             'software': software
                         }
                     
-                    # 等待所有数据获取完成并更新software_list，设置超时避免无限等待
+                    # 等待所有数据获取完成并更新software_list，设置更短的超时避免无限等待
                     completed_count = 0
                     for software_name, future_info in software_futures.items():
                         try:
-                            # 获取stars和下载量数据，设置超时
-                            stars = future_info['stars_future'].result(timeout=8)  # 8秒超时
-                            downloads = future_info['downloads_future'].result(timeout=8)  # 8秒超时
+                            # 获取stars和下载量数据，设置更短的超时时间
+                            stars = future_info['stars_future'].result(timeout=5)  # 5秒超时
+                            downloads = future_info['downloads_future'].result(timeout=5)  # 5秒超时
                             
                             # 更新software_list中的数据
                             for software in software_list:
@@ -988,12 +1172,11 @@ class recommend_dialog(QWidget):
                                     break
                     
                     logger.info(f"数据获取完成: {completed_count}/{len(software_list)} 个软件")
-                    
-                    # 保存所有软件数据到all_apps属性，用于相关推荐
-                    self.all_apps = software_list.copy()
-                    
+
+                    self.all_apps = software_list
+
                     # 所有数据获取完成后，在主线程中顺序创建卡片，避免并发UI操作
-                    for software in software_list:
+                    for software in software_list:  # 使用过滤后的列表创建卡片
                         try:
                             success = self._create_card_task(software)
                             if not success:
@@ -1001,8 +1184,11 @@ class recommend_dialog(QWidget):
                         except Exception as e:
                             logger.error(f"创建卡片失败: {str(e)}")
                     
-                    # 确保最终统一布局
-                    QTimer.singleShot(200, lambda: self.layout_cards(force_refresh=True))
+                    # 确保最终统一布局，延迟刷新确保窗口完全显示
+                    QTimer.singleShot(800, lambda: self.layout_cards(force_refresh=True))
+                    
+                    # 更新轮播图以显示从JSON中获取的宣传图
+                    QTimer.singleShot(1000, self.update_flip_view_with_banners)
                 
                 logger.info(f"所有卡片加载完成，共加载 {len(self.app_cards)} 个应用卡片")
                 
@@ -1016,7 +1202,7 @@ class recommend_dialog(QWidget):
                     # 确保显示所有UI元素
                     self.show_search_ui_elements()
                     # 强制刷新布局以确保所有卡片正确显示
-                    QTimer.singleShot(100, lambda: self.layout_cards(force_refresh=True))
+                    QTimer.singleShot(500, lambda: self.layout_cards(force_refresh=True))
             else:
                 logger.error(f"获取软件列表失败: {reply.errorString()}")
                 # 网络错误时重试一次
@@ -1042,6 +1228,7 @@ class recommend_dialog(QWidget):
     def _create_card_task(self, software_info):
         """创建卡片的任务函数，简化版本避免事件循环卡死"""
         try:
+            logger.info(f"开始创建卡片任务: {software_info.get('name', '未知软件')}")
             # 直接调用主线程方法创建卡片，避免事件循环
             QMetaObject.invokeMethod(self, "_create_card_in_main_thread", Qt.QueuedConnection, 
                                     Q_ARG(object, software_info['name']), 
@@ -1051,17 +1238,22 @@ class recommend_dialog(QWidget):
                                     Q_ARG(object, software_info['stars']),
                                     Q_ARG(object, software_info['downloads']),
                                     Q_ARG(object, software_info['banner']),
-                                    Q_ARG(object, software_info.get('repo_name')))
+                                    Q_ARG(object, software_info.get('repo_name')),
+                                    Q_ARG(object, software_info))  # 传递完整的software_info作为app_data
+            logger.info(f"卡片任务已提交: {software_info.get('name', '未知软件')}")
             return True
         except Exception as e:
             logger.error(f"卡片创建任务失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
             return False
     
-    @pyqtSlot(object, object, object, object, object, object, object, object)
-    def _create_card_in_main_thread(self, name, app_type, description, icon_url=None, stars=0, downloads=0, banner="", repo_name=None):
+    @pyqtSlot(object, object, object, object, object, object, object, object, object)
+    def _create_card_in_main_thread(self, name, app_type, description, icon_url=None, stars=0, downloads=0, banner="", repo_name=None, app_data=None):
         """在主线程中创建卡片的槽函数"""
         try:
-            card = self.create_app_card(name, app_type, description, icon_url, stars, downloads, banner, repo_name)
+            logger.info(f"主线程开始创建卡片: {name} (类型: {app_type})")
+            card = self.create_app_card(name, app_type, description, icon_url, stars, downloads, banner, repo_name, app_data)
             if card:
                 # 根据软件类型确定分类
                 category = self._get_category_by_app_type(app_type)
@@ -1077,12 +1269,16 @@ class recommend_dialog(QWidget):
                     # 只在所有卡片加载完成后统一布局，避免频繁刷新
                     if self._loaded_cards_count >= self._total_cards_count:
                         logger.info(f"所有卡片加载完成，共加载 {self._loaded_cards_count} 个应用卡片")
-                        # 延迟布局以避免UI阻塞
-                        QTimer.singleShot(100, lambda: self.layout_cards(force_refresh=True))
+                        # 延迟布局以避免UI阻塞，确保窗口完全显示
+                        QTimer.singleShot(500, lambda: self.layout_cards(force_refresh=True))
                 finally:
                     self._mutex.unlock()
+            else:
+                logger.error(f"创建卡片失败，返回了None: {name}")
         except Exception as e:
             logger.error(f"主线程卡片创建失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
     
     def _get_category_by_app_type(self, app_type):
         """根据软件类型确定所属分类"""
@@ -1102,11 +1298,21 @@ class recommend_dialog(QWidget):
             ]
         }
         
+        # 首先检查app_type是否直接就是分类名称
+        if app_type in category_keywords:
+            logger.info(f"应用 '{app_type}' 直接匹配分类 '{app_type}'")
+            return app_type
+        
         # 将软件类型转换为小写以便匹配
         app_type_lower = app_type.lower()
         
         # 检查每个分类的关键词
         for category, keywords in category_keywords.items():
+            # 检查分类名称是否包含在app_type中
+            if category.lower() in app_type_lower:
+                logger.info(f"应用 '{app_type}' 匹配分类 '{category}' (分类名称匹配)")
+                return category
+                
             for keyword in keywords:
                 if keyword.lower() in app_type_lower:
                     logger.info(f"应用 '{app_type}' 匹配分类 '{category}' (关键词: {keyword})")
@@ -1116,12 +1322,12 @@ class recommend_dialog(QWidget):
         logger.info(f"应用 '{app_type}' 未匹配到特定分类，默认归为 '辅助类软件与实用工具'")
         return "辅助类软件与实用工具"
     
-    def create_app_card(self, name, app_type, description, icon_url=None, stars=0, downloads=0, banner="", repo_name=None):
+    def create_app_card(self, name, app_type, description, icon_url=None, stars=0, downloads=0, banner="", repo_name=None, app_data=None):
         """创建单个应用卡片"""
         # 创建卡片容器
         card = QWidget()
         card.setObjectName("app_card")
-        card.setFixedSize(350, 150)  # 设置统一的固定尺寸，确保所有卡片高度宽度一致
+        card.setFixedSize(400, 150)  # 设置统一的固定尺寸，确保所有卡片高度宽度一致
         
         # 卡片布局
         card_layout = QHBoxLayout(card)
@@ -1129,7 +1335,7 @@ class recommend_dialog(QWidget):
         
         # 图标区域
         icon_widget = QWidget()
-        icon_widget.setFixedSize(60, 60)
+        icon_widget.setFixedSize(60, 60)  # 恢复原始尺寸
         icon_layout = QVBoxLayout(icon_widget)
         icon_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -1154,10 +1360,28 @@ class recommend_dialog(QWidget):
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(5)
         
+        # 软件名称和recommend内容区域
+        name_widget = QWidget()
+        name_layout = QHBoxLayout(name_widget)
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.setSpacing(8)
+        
         # 软件名称
         name_label = BodyLabel(name)
         name_label.setObjectName("app_name")
         name_label.setFont(QFont(load_custom_font(), 14))
+        name_layout.addWidget(name_label)
+        
+        # 添加recommend内容显示
+        recommend_text = app_data.get('recommend', '') if app_data else ''
+        if recommend_text:
+            recommend_label = BodyLabel(recommend_text)
+            recommend_label.setObjectName("app_recommend")
+            recommend_label.setFont(QFont(load_custom_font(), 9))
+            recommend_label.setStyleSheet("color: #ff6b35; font-weight: bold; background-color: rgba(255, 107, 53, 0.1); padding: 2px 6px; border-radius: 4px;")
+            name_layout.addWidget(recommend_label)
+            
+        name_layout.addStretch()
         
         # 软件类型
         type_label = BodyLabel(app_type)
@@ -1165,8 +1389,8 @@ class recommend_dialog(QWidget):
         type_label.setFont(QFont(load_custom_font(), 12))
         
         # 软件简介
-        # 处理简介文本，最多显示15个字，超出部分用...代替
-        display_desc = description if len(description) <= 25 else description[:25] + "..."
+        # 处理简介文本，最多显示35个字，超出部分用...代替
+        display_desc = description if len(description) <= 35 else description[:35] + "..."
         desc_label = BodyLabel(display_desc)
         desc_label.setObjectName("app_description")
         desc_label.setWordWrap(True)
@@ -1194,7 +1418,7 @@ class recommend_dialog(QWidget):
         stats_layout.addStretch()
         
         # 添加到信息布局
-        info_layout.addWidget(name_label)
+        info_layout.addWidget(name_widget)
         info_layout.addWidget(type_label)
         info_layout.addWidget(desc_label)
         info_layout.addWidget(stats_widget)
@@ -1219,8 +1443,8 @@ class recommend_dialog(QWidget):
             }
         """)
         
-        # 绑定点击事件，传递仓库名信息
-        detail_btn.clicked.connect(lambda: self.show_app_detail(name, app_type, description, icon_url, stars, downloads, banner, repo_name))
+        # 绑定点击事件，传递仓库名信息和完整app_data
+        detail_btn.clicked.connect(lambda: self.show_app_detail(name, app_type, description, icon_url, stars, downloads, banner, repo_name, app_data))
         
         # 添加到卡片布局
         card_layout.addWidget(icon_widget)
@@ -1262,6 +1486,11 @@ class recommend_dialog(QWidget):
             return
             
         try:
+            # 检查图标标签是否仍然有效
+            if not icon_label or sip.isdeleted(icon_label):
+                logger.warning("图标标签已被删除，跳过加载")
+                return
+                
             logger.info(f"开始加载应用图标: {icon_url}")
             # 保存图标URL以便重试时使用
             icon_label._icon_url = icon_url
@@ -1274,22 +1503,61 @@ class recommend_dialog(QWidget):
             # logger.info(f"原始URL: {icon_url}")
             # logger.info(f"处理后URL: {processed_url}")
             
-            # 创建网络请求获取图标
+            # 创建网络请求获取图标，添加超时控制
             request = QNetworkRequest(QUrl(processed_url))
             # 设置User-Agent以避免被某些网站拒绝
             request.setRawHeader(b"User-Agent", b"SecStore/1.0")
+            # 设置超时属性
+            request.setAttribute(QNetworkRequest.CacheLoadControlAttribute, QNetworkRequest.AlwaysNetwork)
+            request.setAttribute(QNetworkRequest.FollowRedirectsAttribute, True)
+            
             reply = self.network_manager.get(request)
+            if not reply:
+                logger.error("创建网络请求失败")
+                self.set_default_icon(icon_label)
+                return
+                
             logger.info(f"发送网络请求: {processed_url}")
+            
+            # 设置超时定时器，10秒后自动取消请求
+            try:
+                icon_label._icon_timeout_timer = QTimer()
+                icon_label._icon_timeout_timer.setSingleShot(True)
+                icon_label._icon_timeout_timer.timeout.connect(
+                    functools.partial(self._on_icon_timeout, reply=reply, icon_label=icon_label)
+                )
+                icon_label._icon_timeout_timer.start(10000)  # 10秒超时
+            except Exception as e:
+                logger.error(f"设置超时定时器失败: {str(e)}")
+                if reply and not sip.isdeleted(reply):
+                    reply.deleteLater()
+                return
             
             # 使用functools.partial确保参数正确传递
             reply.finished.connect(functools.partial(self._safe_on_icon_loaded, icon_label=icon_label))
+            
         except Exception as e:
             logger.error(f"加载图标失败: {str(e)}")
-            self.set_default_icon(icon_label)
+            # 确保图标标签仍然有效
+            if icon_label and not sip.isdeleted(icon_label):
+                self.set_default_icon(icon_label)
     
     def convert_github_url(self, url):
-        """转换GitHub blob URL为可直接访问的raw URL"""
+        """转换GitHub blob URL为可直接访问的raw URL
+        
+        支持的URL格式：
+        - GitHub blob URL: https://github.com/username/repo/blob/branch/path/file.ext
+        - 私有用户图片: https://private-user-images.githubusercontent.com/... (不转换)
+        - user-images.githubusercontent.com: https://user-images.githubusercontent.com/... (不转换)
+        """
         if not url:
+            return url
+            
+        # 私有用户图片和用户图片不需要转换
+        if "private-user-images.githubusercontent.com" in url:
+            return url
+            
+        if "user-images.githubusercontent.com" in url:
             return url
             
         # 检查是否是GitHub blob URL
@@ -1302,101 +1570,195 @@ class recommend_dialog(QWidget):
         # 如果不是GitHub blob URL，直接返回原URL
         return url
         
+    def _on_icon_timeout(self, reply, icon_label):
+        """处理图标加载超时"""
+        try:
+            # 检查图标标签是否仍然有效 - 减少日志级别
+            if not icon_label or sip.isdeleted(icon_label):
+                if hasattr(self, '_debug_mode') and self._debug_mode:
+                    logger.warning("图标标签已被删除，跳过超时处理")
+                return
+                
+            # 仅在调试模式下显示超时警告
+            if hasattr(self, '_debug_mode') and self._debug_mode:
+                logger.warning(f"图标加载超时: {getattr(icon_label, '_icon_url', '未知URL')}")
+            
+            # 检查网络回复对象是否仍然有效
+            if reply and not sip.isdeleted(reply):
+                if not reply.isFinished():
+                    try:
+                        reply.abort()
+                    except Exception as e:
+                        logger.warning(f"取消网络请求失败: {str(e)}")
+                    finally:
+                        reply.deleteLater()
+            else:
+                logger.warning("网络回复对象已被删除")
+            
+            # 清理超时定时器
+            if hasattr(icon_label, '_icon_timeout_timer'):
+                try:
+                    icon_label._icon_timeout_timer.stop()
+                    icon_label._icon_timeout_timer.deleteLater()
+                except Exception as e:
+                    logger.warning(f"清理超时定时器失败: {str(e)}")
+                finally:
+                    delattr(icon_label, '_icon_timeout_timer')
+            
+            # 设置默认图标
+            self.set_default_icon(icon_label)
+            
+        except Exception as e:
+            logger.error(f"处理图标加载超时失败: {str(e)}")
+    
     def set_default_icon(self, icon_label):
         """设置默认图标"""
-        logger.info("开始设置默认图标")
-        # 检查BodyLabel对象是否仍然有效
-        if not icon_label or sip.isdeleted(icon_label):
-            logger.warning("BodyLabel对象已被删除，无法设置默认图标")
-            return
-            
         try:
-            logger.info("清除图标标签现有内容")
-            icon_label.clear()  # 清除现有内容
-            logger.info("设置默认图标样式")
-            icon_label.setStyleSheet("""
-                BodyLabel {
-                    background-color: #f0f0f0;
-                    border: 2px dashed #cccccc;
-                    border-radius: 8px;
-                }
-            """)
-            logger.info("设置默认图标文本")
-            icon_label.setText("图标")
-            logger.info("默认图标设置完成")
+            # 检查图标标签是否仍然有效
+            if not icon_label or sip.isdeleted(icon_label):
+                logger.warning("图标标签已被删除，无法设置默认图标")
+                return
+                
+            logger.debug("开始设置默认图标")
+            
+            try:
+                logger.debug("清除图标标签现有内容")
+                icon_label.clear()  # 清除现有内容
+                
+                logger.debug("设置默认图标样式")
+                icon_label.setStyleSheet("""
+                    BodyLabel {
+                        background-color: #f0f0f0;
+                        border: 2px dashed #cccccc;
+                        border-radius: 8px;
+                    }
+                """)
+                
+                logger.debug("设置默认图标文本")
+                icon_label.setText("图标")
+                logger.debug("默认图标设置完成")
+                
+            except RuntimeError as e:
+                # 处理对象已删除的RuntimeError
+                if "wrapped C/C++ object" in str(e):
+                    logger.warning("图标标签在设置过程中被删除")
+                else:
+                    raise e
+            except Exception as e:
+                logger.error(f"设置默认图标失败: {str(e)}")
+                
         except Exception as e:
-            logger.error(f"设置默认图标失败: {str(e)}")
+            logger.error(f"设置默认图标时发生异常: {str(e)}")
             
     def _safe_on_icon_loaded(self, icon_label):
         """安全处理图标加载完成事件，先检查对象有效性"""
-        # 从信号发送者获取reply对象
-        reply = self.sender()
-        if not reply:
-            logger.error("无法获取网络回复对象")
-            return
+        try:
+            # 从信号发送者获取reply对象
+            reply = self.sender()
+            if not reply:
+                logger.error("无法获取网络回复对象")
+                return
+                
+            # 检查网络回复对象是否仍然有效
+            if sip.isdeleted(reply):
+                logger.warning("网络回复对象已被删除，跳过处理")
+                return
             
-        # logger.info("网络请求完成，开始处理图标")
-        
-        # 检查BodyLabel对象是否仍然有效
-        if not icon_label or sip.isdeleted(icon_label):
-            logger.warning("BodyLabel对象已被删除，跳过图标处理")
-            reply.deleteLater()
-            return
-        
-        # 对象有效，调用实际的图标加载处理方法
-        self.on_icon_loaded(reply, icon_label)
+            # 检查BodyLabel对象是否仍然有效 - 减少日志级别，避免频繁警告
+            if not icon_label or sip.isdeleted(icon_label):
+                # 仅在调试模式下显示警告
+                if hasattr(self, '_debug_mode') and self._debug_mode:
+                    logger.warning("BodyLabel对象已被删除，跳过图标处理")
+                if reply and not sip.isdeleted(reply):
+                    reply.deleteLater()
+                return
+            
+            # 清理超时定时器（如果存在）
+            if hasattr(icon_label, '_icon_timeout_timer'):
+                try:
+                    icon_label._icon_timeout_timer.stop()
+                    icon_label._icon_timeout_timer.deleteLater()
+                except Exception as e:
+                    logger.warning(f"清理超时定时器失败: {str(e)}")
+                finally:
+                    if hasattr(icon_label, '_icon_timeout_timer'):
+                        delattr(icon_label, '_icon_timeout_timer')
+            
+            # 对象有效，调用实际的图标加载处理方法
+            self.on_icon_loaded(reply, icon_label)
+            
+        except Exception as e:
+            logger.error(f"安全处理图标加载完成事件失败: {str(e)}")
+            # 清理reply对象
+            reply = self.sender()
+            if reply and not sip.isdeleted(reply):
+                reply.deleteLater()
     
     def on_icon_loaded(self, reply, icon_label):
         """处理图标加载完成事件"""
         try:
+            # 检查网络回复对象是否仍然有效
+            if not reply or sip.isdeleted(reply):
+                logger.warning("网络回复对象已被删除，跳过处理")
+                return
+                
             # 检查BodyLabel对象是否仍然有效
             if not icon_label or sip.isdeleted(icon_label):
                 logger.warning("BodyLabel对象已被删除，跳过图标处理")
+                reply.deleteLater()
                 return
                 
             if reply.error() == QNetworkReply.NoError:
                 # logger.info("图标网络请求成功")
-                data = reply.readAll()
-                if data.isEmpty():
-                    # logger.warning("图标数据为空")
-                    # 尝试重新加载图标（重试一次）
-                    if hasattr(icon_label, '_icon_retry_count') and icon_label._icon_retry_count < 1:
-                        icon_label._icon_retry_count += 1
-                        # logger.info("尝试重新加载图标...")
-                        # 延迟2秒后重试
-                        QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
+                try:
+                    data = reply.readAll()
+                    if data.isEmpty():
+                        # logger.warning("图标数据为空")
+                        # 尝试重新加载图标（重试一次）
+                        if hasattr(icon_label, '_icon_retry_count') and icon_label._icon_retry_count < 1:
+                            icon_label._icon_retry_count += 1
+                            # logger.info("尝试重新加载图标...")
+                            # 延迟2秒后重试
+                            if not sip.isdeleted(icon_label):
+                                QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
+                        else:
+                            # 重置重试计数并设置默认图标
+                            icon_label._icon_retry_count = 0
+                            self.set_default_icon(icon_label)
+                        return
+                        
+                    # logger.info(f"接收到图标数据，大小: {data.size()} 字节")
+                    pixmap = QPixmap()
+                    if pixmap.loadFromData(data) and not pixmap.isNull():
+                        # 缩放图标以适应标签大小
+                        scaled_pixmap = pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        if not sip.isdeleted(icon_label):
+                            icon_label.setPixmap(scaled_pixmap)
+                            logger.info("图标加载成功并显示")
+                            # 重置重试计数
+                            icon_label._icon_retry_count = 0
                     else:
-                        # 重置重试计数并设置默认图标
-                        icon_label._icon_retry_count = 0
-                        self.set_default_icon(icon_label)
-                    return
-                    
-                # logger.info(f"接收到图标数据，大小: {data.size()} 字节")
-                pixmap = QPixmap()
-                if pixmap.loadFromData(data):
-                    # 缩放图标以适应标签大小
-                    scaled_pixmap = pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    icon_label.setPixmap(scaled_pixmap)
-                    logger.info("图标加载成功并显示")
-                    # 重置重试计数
-                    icon_label._icon_retry_count = 0
-                else:
-                    logger.warning(f"无法解析图标数据，数据大小: {data.size()}")
-                    # 尝试重新加载图标
-                    if hasattr(icon_label, '_icon_retry_count') and icon_label._icon_retry_count < 1:
-                        icon_label._icon_retry_count += 1
-                        logger.info("尝试重新加载图标...")
-                        QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
-                    else:
-                        icon_label._icon_retry_count = 0
-                        self.set_default_icon(icon_label)
+                        logger.warning(f"无法解析图标数据，数据大小: {data.size()}")
+                        # 尝试重新加载图标
+                        if hasattr(icon_label, '_icon_retry_count') and icon_label._icon_retry_count < 1:
+                            icon_label._icon_retry_count += 1
+                            logger.info("尝试重新加载图标...")
+                            if not sip.isdeleted(icon_label):
+                                QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
+                        else:
+                            icon_label._icon_retry_count = 0
+                            self.set_default_icon(icon_label)
+                except Exception as e:
+                    logger.error(f"读取图标数据失败: {str(e)}")
+                    self.set_default_icon(icon_label)
             else:
                 logger.error(f"图标网络请求失败: {reply.errorString()}")
                 # 网络错误时重试
                 if hasattr(icon_label, '_icon_retry_count') and icon_label._icon_retry_count < 1:
                     icon_label._icon_retry_count += 1
                     logger.info("尝试重新加载图标...")
-                    QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
+                    if not sip.isdeleted(icon_label):
+                        QTimer.singleShot(2000, lambda: self.load_app_icon(icon_label, icon_label._icon_url))
                 else:
                     icon_label._icon_retry_count = 0
                     self.set_default_icon(icon_label)
@@ -1406,17 +1768,21 @@ class recommend_dialog(QWidget):
             if icon_label and not sip.isdeleted(icon_label):
                 self.set_default_icon(icon_label)
         finally:
-            reply.deleteLater()
+            # 确保reply对象仍然有效再删除
+            if reply and not sip.isdeleted(reply):
+                reply.deleteLater()
     
-    def show_app_detail(self, name, app_type, description, icon_url, stars=0, downloads=0, banner="", repo_name=None):
+    def show_app_detail(self, name, app_type, description, icon_url, stars=0, downloads=0, banner="", repo_name=None, app_data=None):
         """显示应用详情对话框"""
-        detail_dialog = AppDetailDialog(name, app_type, description, icon_url, stars, downloads, banner, repo_name, self)
+        # 对应用类型进行标准化处理，确保相关推荐匹配正确
+        standardized_app_type = self._get_category_by_app_type(app_type)
+        detail_dialog = AppDetailDialog(name, standardized_app_type, description, icon_url, stars, downloads, banner, repo_name, self, app_data)
         detail_dialog.exec_()
 
 
 class AppDetailDialog(QDialog):
     """应用详情对话框"""
-    def __init__(self, name, app_type, description, icon_url, stars=0, downloads=0, banner="", repo_name=None, parent=None):
+    def __init__(self, name, app_type, description, icon_url, stars=0, downloads=0, banner="", repo_name=None, parent=None, app_data=None):
         super().__init__(parent)
         self.name = name
         self.app_type = app_type
@@ -1426,10 +1792,11 @@ class AppDetailDialog(QDialog):
         self.downloads = downloads
         self.banner = banner
         self.repo_name = repo_name
+        self.app_data = app_data or {}
         
         self.setObjectName("app_detail_dialog")
         self.setWindowTitle(f"{name} - 详情")
-        self.setFixedSize(600, 700)
+        self.setFixedSize(900, 700)
         self.setModal(True)
         
         # 初始化UI
@@ -1447,27 +1814,30 @@ class AppDetailDialog(QDialog):
         
     def init_ui(self):
         """初始化用户界面"""
-        # 主布局
-        main_layout = QVBoxLayout(self)
+        # 创建主滚动区域
+        self.main_scroll_area = SingleDirectionScrollArea(orient=Qt.Vertical)
+        self.main_scroll_area.setObjectName("detail_scroll_area")
+        self.main_scroll_area.setWidgetResizable(True)
+        QScroller.grabGesture(self.main_scroll_area.viewport(), QScroller.LeftMouseButtonGesture)
+        
+        # 创建主内容容器
+        self.main_content_widget = QWidget()
+        self.main_content_widget.setObjectName("detail_content_widget")
+        main_layout = QVBoxLayout(self.main_content_widget)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
         
-        # Banner图片区域
-        if self.banner:
-            self.banner_widget = QWidget()
-            self.banner_widget.setFixedHeight(150)
-            self.banner_widget.setObjectName("detail_banner_widget")
-            banner_layout = QVBoxLayout(self.banner_widget)
-            banner_layout.setContentsMargins(0, 0, 0, 0)
-            
-            self.banner_label = BodyLabel()
-            self.banner_label.setObjectName("detail_banner_label")
-            self.banner_label.setFixedSize(560, 150)
-            self.banner_label.setAlignment(Qt.AlignCenter)
-            self.banner_label.setScaledContents(True)
-            
-            banner_layout.addWidget(self.banner_label, alignment=Qt.AlignCenter)
-            main_layout.addWidget(self.banner_widget)
+        # 设置主滚动区域的内容
+        self.main_scroll_area.setWidget(self.main_content_widget)
+        
+        # 设置滚动区域样式为透明背景
+        self.main_scroll_area.setStyleSheet("QScrollArea{background: transparent; border: none}")
+        self.main_content_widget.setStyleSheet("QWidget{background: transparent}")
+        
+        # 主布局
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.main_scroll_area) 
         
         # 顶部信息区域
         top_widget = QWidget()
@@ -1534,6 +1904,10 @@ class AppDetailDialog(QDialog):
         info_layout.addWidget(type_label)
         info_layout.addWidget(desc_label)
         info_layout.addWidget(stats_widget)
+        
+        # 添加详细信息区域
+        self.create_detail_info_section(info_layout)
+        
         info_layout.addStretch()
         
         # 添加到顶部布局
@@ -1601,12 +1975,22 @@ class AppDetailDialog(QDialog):
         close_btn.setFont(QFont(load_custom_font(), 12))
         close_btn.clicked.connect(self.close)
         
-        # 安装按钮
-        install_btn = PrimaryPushButton("安装")
-        install_btn.setObjectName("detail_install_btn")
+        # 安装/跳转按钮
+        is_web_app = self.app_data.get('isweb', False)
+        if is_web_app:
+            install_btn = PrimaryPushButton("访问")
+            install_btn.setObjectName("detail_visit_btn")
+        else:
+            install_btn = PrimaryPushButton("安装")
+            install_btn.setObjectName("detail_install_btn")
         install_btn.setFixedSize(80, 32)
         install_btn.setFont(QFont(load_custom_font(), 12))
-        install_btn.clicked.connect(self.install_app)
+        
+        # 根据isweb属性设置不同的点击行为
+        if is_web_app:
+            install_btn.clicked.connect(self.visit_website)
+        else:
+            install_btn.clicked.connect(self.install_app)
         
         button_layout.addStretch()
         button_layout.addWidget(install_btn)
@@ -1616,6 +2000,23 @@ class AppDetailDialog(QDialog):
         main_layout.addWidget(top_widget)
         main_layout.addWidget(line)
         main_layout.addWidget(changelog_widget)
+        
+        # Banner图片区域
+        if self.banner:
+            self.banner_widget = QWidget()
+            self.banner_widget.setFixedHeight(680)
+            self.banner_widget.setObjectName("detail_banner_widget")
+            banner_layout = QVBoxLayout(self.banner_widget)
+            banner_layout.setContentsMargins(0, 0, 0, 0)
+            
+            self.banner_label = BodyLabel()
+            self.banner_label.setObjectName("detail_banner_label")
+            self.banner_label.setFixedSize(880, 680)
+            self.banner_label.setAlignment(Qt.AlignCenter)
+            
+            banner_layout.addWidget(self.banner_label, alignment=Qt.AlignCenter)
+            main_layout.addWidget(self.banner_widget)
+        
         main_layout.addWidget(recommend_widget)
         main_layout.addStretch()
         main_layout.addWidget(button_widget)
@@ -1625,6 +2026,171 @@ class AppDetailDialog(QDialog):
         
         # 加载相关推荐
         self.load_related_recommendations()
+        
+    def create_detail_info_section(self, parent_layout):
+        """创建详细信息区域，显示新的JSON字段"""
+        if not self.app_data:
+            return
+            
+        # 创建详细信息容器
+        detail_info_widget = QWidget()
+        detail_info_layout = QVBoxLayout(detail_info_widget)
+        detail_info_layout.setContentsMargins(0, 10, 0, 0)
+        detail_info_layout.setSpacing(5)
+        
+        # 创建横向信息容器，支持自动换行
+        info_flow_widget = QWidget()
+        info_flow_layout = QHBoxLayout(info_flow_widget)
+        info_flow_layout.setContentsMargins(0, 0, 0, 0)
+        info_flow_layout.setSpacing(10)
+        
+        # 创建左侧信息组
+        left_info_widget = QWidget()
+        left_info_layout = QVBoxLayout(left_info_widget)
+        left_info_layout.setContentsMargins(0, 0, 0, 0)
+        left_info_layout.setSpacing(5)
+        
+        # 创建右侧信息组
+        right_info_widget = QWidget()
+        right_info_layout = QVBoxLayout(right_info_widget)
+        right_info_layout.setContentsMargins(0, 0, 0, 0)
+        right_info_layout.setSpacing(5)
+        
+        # 左侧信息：作者、支持平台、开源协议
+        # 作者信息
+        if self.app_data.get('author'):
+            author_label = BodyLabel(f"👤 作者: {self.app_data['author']}")
+            author_label.setFont(QFont(load_custom_font(), 10))
+            author_label.setStyleSheet("color: #666;")
+            left_info_layout.addWidget(author_label)
+        
+        # 支持平台
+        if self.app_data.get('platform'):
+            platforms = self.app_data['platform']
+            if isinstance(platforms, list):
+                platform_text = ", ".join(platforms)
+            else:
+                platform_text = str(platforms)
+            platform_label = BodyLabel(f"💻 支持平台: {platform_text}")
+            platform_label.setFont(QFont(load_custom_font(), 10))
+            platform_label.setStyleSheet("color: #666;")
+            left_info_layout.addWidget(platform_label)
+        
+        # 开源协议
+        if self.app_data.get('license'):
+            license_text = self.app_data['license']
+            if self.app_data.get('license_url'):
+                # 创建可点击的链接
+                license_label = BodyLabel(f"📄 开源协议: ")
+                license_label.setFont(QFont(load_custom_font(), 10))
+                license_label.setStyleSheet("color: #666;")
+                
+                license_link = BodyLabel(f"<a href=\"{self.app_data['license_url']}\" style=\"color: #0078d4; text-decoration: none;\">{license_text}</a>")
+                license_link.setFont(QFont(load_custom_font(), 10))
+                license_link.setOpenExternalLinks(True)
+                license_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                
+                license_layout = QHBoxLayout()
+                license_layout.setContentsMargins(0, 0, 0, 0)
+                license_layout.setSpacing(0)
+                license_layout.addWidget(license_label)
+                license_layout.addWidget(license_link)
+                license_layout.addStretch()
+                
+                left_info_layout.addLayout(license_layout)
+            else:
+                license_label = BodyLabel(f"📄 开源协议: {license_text}")
+                license_label.setFont(QFont(load_custom_font(), 10))
+                license_label.setStyleSheet("color: #666;")
+                left_info_layout.addWidget(license_label)
+        
+        # 右侧信息：官方网站、GitHub仓库、QQ群
+        # 官方网站
+        if self.app_data.get('official_website'):
+            website_label = BodyLabel(f"🌐 官方网站: ")
+            website_label.setFont(QFont(load_custom_font(), 10))
+            website_label.setStyleSheet("color: #666;")
+            
+            website_link = BodyLabel(f"<a href=\"{self.app_data['official_website']}\" style=\"color: #0078d4; text-decoration: none;\">访问官网</a>")
+            website_link.setFont(QFont(load_custom_font(), 10))
+            website_link.setOpenExternalLinks(True)
+            website_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            
+            website_layout = QHBoxLayout()
+            website_layout.setContentsMargins(0, 0, 0, 0)
+            website_layout.setSpacing(0)
+            website_layout.addWidget(website_label)
+            website_layout.addWidget(website_link)
+            website_layout.addStretch()
+            
+            right_info_layout.addLayout(website_layout)
+        
+        # GitHub仓库链接
+        if self.app_data.get('url'):
+            github_label = BodyLabel(f"💾 GitHub仓库: ")
+            github_label.setFont(QFont(load_custom_font(), 10))
+            github_label.setStyleSheet("color: #666;")
+            
+            github_link = BodyLabel(f"<a href=\"{self.app_data['url']}\" style=\"color: #0078d4; text-decoration: none;\">查看仓库</a>")
+            github_link.setFont(QFont(load_custom_font(), 10))
+            github_link.setOpenExternalLinks(True)
+            github_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            
+            github_layout = QHBoxLayout()
+            github_layout.setContentsMargins(0, 0, 0, 0)
+            github_layout.setSpacing(0)
+            github_layout.addWidget(github_label)
+            github_layout.addWidget(github_link)
+            github_layout.addStretch()
+            
+            right_info_layout.addLayout(github_layout)
+        
+        # QQ群信息
+        if self.app_data.get('qq'):
+            qq_text = self.app_data['qq']
+            qq_name = self.app_data.get('qq_name', '交流群')
+            
+            qq_label = BodyLabel(f"💬 {qq_name}: ")
+            qq_label.setFont(QFont(load_custom_font(), 10))
+            qq_label.setStyleSheet("color: #666;")
+            
+            # 创建QQ群链接
+            qq_link_text = f"{qq_text}"
+            qq_link = BodyLabel(f"<a href=\"https://qm.qq.com/cgi-bin/qm/qr?k={qq_text}\" style=\"color: #0078d4; text-decoration: none;\">{qq_link_text}</a>")
+            qq_link.setFont(QFont(load_custom_font(), 10))
+            qq_link.setOpenExternalLinks(True)
+            qq_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            
+            qq_layout = QHBoxLayout()
+            qq_layout.setContentsMargins(0, 0, 0, 0)
+            qq_layout.setSpacing(0)
+            qq_layout.addWidget(qq_label)
+            qq_layout.addWidget(qq_link)
+            qq_layout.addStretch()
+            
+            right_info_layout.addLayout(qq_layout)
+        
+        # 添加拉伸因子，让左右两侧能够合理分布
+        left_info_layout.addStretch()
+        right_info_layout.addStretch()
+        
+        # 将左右两侧添加到横向布局中
+        info_flow_layout.addWidget(left_info_widget, stretch=1)
+        info_flow_layout.addWidget(right_info_widget, stretch=1)
+        
+        # 注意事项单独放在底部
+        if self.app_data.get('note'):
+            note_label = BodyLabel(f"⚠️ 注意: {self.app_data['note']}")
+            note_label.setFont(QFont(load_custom_font(), 10))
+            note_label.setStyleSheet("color: #ff6b6b;")
+            note_label.setWordWrap(True)
+            detail_info_layout.addWidget(note_label)
+        
+        # 将横向信息容器添加到主布局
+        detail_info_layout.addWidget(info_flow_widget)
+        
+        # 添加到父布局
+        parent_layout.addWidget(detail_info_widget)
 
     def validate_and_fix_repo_name(self, repo_name, url=None):
         """验证并修正仓库名格式，从url中获取正确的组织信息"""
@@ -1736,7 +2302,7 @@ class AppDetailDialog(QDialog):
             return
             
         try:
-            # 转换GitHub blob URL为raw URL
+            # 使用convert_github_url方法统一处理URL转换
             processed_url = self.parent().convert_github_url(self.icon_url)
             
             # 创建网络请求获取图标
@@ -1755,7 +2321,7 @@ class AppDetailDialog(QDialog):
             return
             
         try:
-            # 转换GitHub blob URL为raw URL
+            # 使用convert_github_url方法统一处理URL转换
             processed_url = self.parent().convert_github_url(self.banner)
             
             # 创建网络请求获取banner图片
@@ -1774,7 +2340,7 @@ class AppDetailDialog(QDialog):
                 data = reply.readAll()
                 if not data.isEmpty():
                     pixmap = QPixmap()
-                    if pixmap.loadFromData(data):
+                    if pixmap.loadFromData(data) and not pixmap.isNull():
                         # 缩放图标以适应标签大小
                         scaled_pixmap = pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         self.icon_label.setPixmap(scaled_pixmap)
@@ -1796,9 +2362,11 @@ class AppDetailDialog(QDialog):
                 if not data.isEmpty():
                     pixmap = QPixmap()
                     if pixmap.loadFromData(data):
-                        # 缩放banner图片以适应标签大小
-                        scaled_pixmap = pixmap.scaled(560, 150, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                        self.banner_label.setPixmap(scaled_pixmap)
+                        # 直接使用原始图片尺寸显示banner图片，不进行缩放，确保不超出窗口
+                        self.banner_label.setPixmap(pixmap)
+                        self.banner_label.setAlignment(Qt.AlignCenter)
+                        self.banner_label.setMinimumSize(1, 1)
+                        self.banner_label.setMaximumSize(880, 680)
                         return
             
             # 加载失败时隐藏banner区域
@@ -1837,8 +2405,9 @@ class AppDetailDialog(QDialog):
             # 使用动态仓库名，如果没有则使用默认值
             repo_name = self.repo_name if self.repo_name else "SECTL/SecStore"
             
-            # 验证并修正仓库名格式，尝试从icon_url获取GitHub URL信息
-            validated_repo_name = self.parent().validate_and_fix_repo_name(repo_name, self.icon_url)
+            # 验证并修正仓库名格式，优先使用软件的url字段，其次尝试从icon_url获取GitHub URL信息
+            software_url = self.app_data.get('url') or self.icon_url
+            validated_repo_name = self.parent().validate_and_fix_repo_name(repo_name, software_url)
             if not validated_repo_name:
                 logger.error(f"仓库名格式不正确且无法修正: {repo_name}，无法获取发布信息")
                 self.changelog_content.setText("无法获取更新日志：仓库名格式不正确")
@@ -1869,7 +2438,6 @@ class AppDetailDialog(QDialog):
                 data = reply.readAll()
                 if not data.isEmpty():
                     # 解析JSON数据
-                    import json
                     releases = json.loads(data.data().decode('utf-8'))
                     
                     if releases and len(releases) > 0:
@@ -1945,7 +2513,10 @@ class AppDetailDialog(QDialog):
         """加载相关推荐软件"""
         try:
             # 获取父窗口的所有软件数据
-            all_apps = getattr(self.parent(), 'all_apps', [])
+            parent = self.parent()
+            
+            all_apps = getattr(parent, 'all_apps', [])
+            
             if not all_apps:
                 logger.warning("无法获取软件列表数据")
                 self.recommend_placeholder.setText("暂无相关推荐")
@@ -1960,12 +2531,35 @@ class AppDetailDialog(QDialog):
             
             # 筛选同标签的软件（排除当前软件）
             related_apps = []
-            for app in all_apps:
-                if (app.get('category') == current_category and 
-                    app.get('name') != self.name):
+            matched_count = 0
+            
+            for i, app in enumerate(all_apps):
+                app_name = app.get('name', '未知')
+                app_raw_category = app.get('category', '未分类')
+                logger.info(f"[{i+1}/{len(all_apps)}] 检查应用: {app_name}, 原始分类: {app_raw_category}")
+                
+                # 使用相同的分类处理方法确保匹配正确
+                try:
+                    app_category = self.parent()._get_category_by_app_type(app_raw_category)
+                except Exception as e:
+                    logger.error(f"获取应用分类失败: {e}")
+                    continue
+                
+                # 检查是否匹配当前分类
+                category_match = app_category == current_category
+                name_match = app.get('name') != self.name
+                
+                # logger.info(f"分类匹配: {category_match}, 名称匹配: {name_match}")
+                
+                if category_match and name_match:
                     related_apps.append(app)
+                    matched_count += 1
+                    logger.info(f"✓ 添加相关应用: {app_name} (第{matched_count}个)")
+            
+            logger.info(f"总共找到 {len(related_apps)} 个相关应用")
             
             if not related_apps:
+                logger.warning("没有找到任何相关应用")
                 self.recommend_placeholder.setText("暂无同标签软件")
                 return
             
@@ -1987,7 +2581,15 @@ class AppDetailDialog(QDialog):
             while self.recommend_layout_inner.count():
                 item = self.recommend_layout_inner.takeAt(0)
                 if item.widget():
-                    item.widget().deleteLater()
+                    try:
+                        widget = item.widget()
+                        if not sip.isdeleted(widget):
+                            widget.deleteLater()
+                    except RuntimeError as e:
+                        if "wrapped C/C++ object" in str(e):
+                            logger.debug("推荐内容widget已被删除，跳过清理")
+                        else:
+                            logger.error(f"清理推荐内容widget时出错: {e}")
             
             # 创建推荐软件卡片
             for app in top_apps:
@@ -2093,7 +2695,7 @@ class AppDetailDialog(QDialog):
                 data = reply.readAll()
                 if not data.isEmpty():
                     pixmap = QPixmap()
-                    if pixmap.loadFromData(data):
+                    if pixmap.loadFromData(data) and not pixmap.isNull():
                         scaled_pixmap = pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         label.setPixmap(scaled_pixmap)
                         return
@@ -2130,3 +2732,18 @@ class AppDetailDialog(QDialog):
         # TODO: 实现应用安装逻辑
         logger.info(f"开始安装应用: {self.name}")
         QMessageBox.information(self, "安装提示", f"正在准备安装 {self.name}...\n此功能正在开发中。")
+    
+    def visit_website(self):
+        """访问网站"""
+        try:
+            # 获取网站链接，优先使用official_website，其次使用url
+            website_url = self.app_data.get('official_website') or self.app_data.get('url')
+            if website_url:
+                logger.info(f"打开网站: {website_url}")
+                QDesktopServices.openUrl(QUrl(website_url))
+            else:
+                logger.warning(f"应用 {self.name} 没有提供网站链接")
+                QMessageBox.warning(self, "提示", f"该应用没有提供可访问的网站链接")
+        except Exception as e:
+            logger.error(f"打开网站失败: {str(e)}")
+            QMessageBox.warning(self, "错误", f"无法打开网站链接: {str(e)}")
